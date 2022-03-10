@@ -100,19 +100,19 @@ exports.addUser = addUser;
 const getAllReservations = function(guest_id, limit = 10) {
   return pool
   .query(`
-    SELECT reservations.id, properties.title, reservations.start_date, properties.cost_per_night, AVG(property_reviews.rating) AS rating
+    SELECT reservations.id, properties.title,properties.number_of_bathrooms,properties.number_of_bedrooms,reservations.start_date, properties.cost_per_night,properties.parking_spaces, AVG(property_reviews.rating) AS average_rating
     FROM reservations
     JOIN properties ON properties.id = reservations.property_id
     JOIN property_reviews ON property_reviews.id = reservations.property_id
     JOIN users ON reservations.guest_id = users.id
     WHERE users.id = $1
-    GROUP BY reservations.id,properties.title, reservations.start_date, properties.cost_per_night
+    GROUP BY reservations.id,properties.title, reservations.start_date, properties.cost_per_night,properties.number_of_bathrooms,properties.number_of_bedrooms,properties.parking_spaces 
     ORDER BY start_date 
     ASC
     LIMIT $2;`,
     [ guest_id,limit ])
   .then((result) => {
-    console.log(result.rows[0]);
+
     return result.rows;
   })
   .catch((err) => {
@@ -136,17 +136,43 @@ exports.getAllReservations = getAllReservations;
 //   }
 //   return Promise.resolve(limitedProperties);
 // }
-const getAllProperties = (options, limit = 10) => {
-  return pool
-    .query(
-      `SELECT title FROM properties LIMIT $1;`,
-      [ limit ])
-    .then((result) => {
-      return result.rows;
-    })
-    .catch((err) => {
-      console.log(err.message);
-    });
+const getAllProperties = function(options, limit = 10) {
+  // 1 Setup an array to hold any parameters that may be available for the query
+  const queryParams = [];
+  // 2 Start the query with all information that comes before the WHERE clause.
+  let queryString = `
+  SELECT properties.*, avg(property_reviews.rating) as average_rating
+  FROM properties
+  JOIN property_reviews ON properties.id = property_id
+  `;
+  // 3 Check if a city, owner_id or price_per_night has been passed in as an option. Add them to the params array and create a WHERE clause
+  if (options.city) {
+    queryParams.push(`%${options.city}%`);
+    queryString += `WHERE city ILIKE $${queryParams.length} `;
+  }
+  if (options.owner_id) {
+    queryParams.push(options.owner_id);
+    queryString += `AND owner_id = $${queryParams.length} `;
+  }
+  if (options.minimum_price_per_night && options.maximum_price_per_night) {
+    queryParams.push(parseInt(options.minimum_price_per_night));
+    queryString += `AND cost_per_night >= $${queryParams.length}`;
+    queryParams.push(parseInt(options.maximum_price_per_night));
+    queryString += `AND cost_per_night <= $${queryParams.length}`;
+  }
+  // 4
+  queryString += `GROUP BY properties.id `;
+  if (options.minimum_rating) {
+    queryParams.push(parseInt(options.minimum_rating));
+    queryString += `HAVING avg(rating) >= $${queryParams.length}`;
+  }
+  queryParams.push(limit);
+  queryString +=  `ORDER BY cost_per_night
+  LIMIT $${queryParams.length};
+`;
+  // 6 Run the query.
+  return pool.query(queryString, queryParams)
+  .then(res => res.rows);
 };
 exports.getAllProperties = getAllProperties;
 
@@ -156,10 +182,17 @@ exports.getAllProperties = getAllProperties;
  * @param {{}} property An object containing all of the property details.
  * @return {Promise<{}>} A promise to the property.
  */
-const addProperty = function(property) {
-  const propertyId = Object.keys(properties).length + 1;
-  property.id = propertyId;
-  properties[propertyId] = property;
-  return Promise.resolve(property);
+ const addProperty = function(property) {
+  const queryString = `
+  INSERT INTO properties (owner_id, title, description, thumbnail_photo_url, cover_photo_url, cost_per_night, parking_spaces, number_of_bathrooms, number_of_bedrooms, country, street, city, province, post_code)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+  RETURNING *;
+  `;
+  const values = [property.owner_id, property.title, property.description, property.thumbnail_photo_url, property.cover_photo_url, property.cost_per_night, property.parking_spaces, property.number_of_bathrooms, property.number_of_bedrooms, property.country, property.street, property.city, property.province, property.post_code];
+
+  return pool.query(queryString, values)
+    .then(res => {
+      return res.rows[0];
+    })
 }
 exports.addProperty = addProperty;
