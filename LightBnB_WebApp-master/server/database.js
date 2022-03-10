@@ -99,8 +99,8 @@ exports.addUser = addUser;
  */
 const getAllReservations = function(guest_id, limit = 10) {
   return pool
-  .query(
-    `SELECT reservations.id, properties.title, reservations.start_date, properties.cost_per_night, ROUND(AVG(property_reviews.rating)) AS rating
+  .query(`
+    SELECT reservations.id, properties.title, reservations.start_date, properties.cost_per_night, AVG(property_reviews.rating) AS rating
     FROM reservations
     JOIN properties ON properties.id = reservations.property_id
     JOIN property_reviews ON property_reviews.id = reservations.property_id
@@ -112,7 +112,7 @@ const getAllReservations = function(guest_id, limit = 10) {
     LIMIT $2;`,
     [ guest_id,limit ])
   .then((result) => {
-    console.log(result.rows);
+    console.log(result.rows[0]);
     return result.rows;
   })
   .catch((err) => {
